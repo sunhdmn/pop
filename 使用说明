@@ -1,0 +1,372 @@
+Facebook pop
+作者：http://blog.csdn.net/majiakun1/article/details/48975569
+摘要：本文档为Facebook pop动画库的学习及使用记录，主要介绍一些常用动画。
+
+文档版本
+2015.3.9 - 创建文档
+2015.3.11 - 添加划出动画、淡入淡出动画
+2015.3.12 - 添加缩小动画、旋转动画、透明动画、POP框架
+2015.3.13 - 添加源码阅读
+目录
+概述
+Pop主要目标之一是能够以物理现实的方式，直接操作屏幕上的元素。直接操作模式，允许动画在动作中或中断后进行交互。Facebook的Brian Amerige非常清晰地概括了填补用户手势与逼真动画之间差距的复杂性。关键点是在手势结尾时，后续动画以手势的速度衰退，从而保持用户的意图。这样，动画就可以按现实的流畅方式跟随和完成手势动作。虽然Pop的API是受核心动画的启发，但它并不仅限定于那些CALayer属性定义的动画。实际上，Pop扩展了核心动画的可动画（Animatable）属性，并且用于CALayer的动画API同样可以用于UIView、UINavigationBar和UITabBar的属性。这样做最有趣的是，由于Pop的开放特性，为更多的类增加更多的可动画属性成为可能。
+Pop创造魔力的基本机制是依靠CADisplayLink提供动画节拍，自己处理所有的动画逻辑。
+这种方法的一个缺点对UIKit Dynamics来说很常见，正如Andy Matuschak所指出的，是CADisplayLink与其应用具有相同的运行优先级，而渲染服务处理UIView和CAAnimation则有更高的优先级，因此不太可能受系统中正在运行的其它任务影响。
+
+虽然对于iOS用户来说，各类动画效果并不少见，但事实上它们其中多数都是静态动画，而Paper的动画效果则可以根据用户的触摸给出动态的反馈。这也就是说当用户使用不同的手势时，Paper动画演变的速率是不同的。
+动画速率
+
+对于用户来说，如果触摸屏上的元素可以对其触摸动作作出反馈，那么它也应该对其触摸的速率作出反馈。这也将是移动设备上动画效果接下来的发展趋势。
+
+iOS原生的Core Animation框架只提供了linear, ease-in, ease-out和ease-in-ease-out等4种静态动画：
+静态动画
+
+这些限制了iOS设备上触摸和手势应该有的表现力。因此Kimon Tsinteris决定在Core Animation基础上增加Spring、Decay和Custom 3种动态动画效果：
+pop框架
+
+安装pop框架
+通过cocoapods加入pop，pod 'pop'。或者，到GitHub下载，然后把pop文件夹拖到项目里，再 #import <POP.h> 即可。
+
+使用步骤
+pop和Core Animation拥有几乎相同的编程步骤。
+Core Animation用以增删动画的方法有
+
+/* Attach an animation object to the layer.*/
+- (void)addAnimation:(CAAnimation *)anim forKey:(NSString *)key;
+
+/* Remove all animations attached to the layer. */
+- (void)removeAllAnimations;
+
+/* Remove any animation attached to the layer for 'key'. */
+- (void)removeAnimationForKey:(NSString *)key;
+
+/* Returns an array containing the keys of all animations currently
+ * attached to the receiver. The order of the array matches the order
+ * in which animations will be applied. */
+- (NSArray *)animationKeys;
+
+/* Returns the animation added to the layer with identifier 'key', or nil
+ * if no such animation exists. Attempting to modify any properties of
+ * the returned object will result in undefined behavior. */
+
+- (CAAnimation *)animationForKey:(NSString *)key;
+类似的，pop拥有如下方法
+
+@interface NSObject (POP)
+
+/**
+ @abstract Add an animation to the reciver.
+ @param anim The animation to add.
+ @param key The key used to identify the animation.
+ @discussion The 'key' may be any string such that only one animation per unique key is added per object.
+ */
+- (void)pop_addAnimation:(POPAnimation *)anim forKey:(NSString *)key;
+
+/**
+ @abstract Remove all animations attached to the receiver.
+ */
+- (void)pop_removeAllAnimations;
+
+/**
+ @abstract Remove any animation attached to the receiver for 'key'.
+ @param key The key used to identify the animation.
+ */
+- (void)pop_removeAnimationForKey:(NSString *)key;
+
+/**
+ @abstract Returns an array containing the keys of all animations currently attached to the receiver.
+ @param The order of keys reflects the order in which animations will be applied.
+ */
+- (NSArray *)pop_animationKeys;
+
+/**
+ @abstract Returns any animation attached to the receiver.
+ @param key The key used to identify the animation.
+ @returns The animation currently attached, or nil if no such animation exists.
+ */
+- (id)pop_animationForKey:(NSString *)key;
+
+@end
+那么，使用pop创建动画的简单代码为
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    
+    POPSpringAnimation *ami = [POPSpringAnimation animationWithPropertyNamed:kPOPLayerBounds];
+    ami.toValue = [NSValue valueWithCGRect:CGRectMake(0, 0, 400, 400)];
+    [self.view.layer pop_addAnimation:ami forKey:@"boundesami"];
+}
+通过- (id)pop_animationForKey:查询已存在的动画，然后更新其相应的属性，可实现无缝更新的动画效果，算法示例如下
+
+anim = [layer pop_animationForKey:@"myKey"];
+if (anim) {
+  /* update to value to new destination */
+  anim.toValue = @(100.0);
+} else {
+  /* create and start a new animation */
+  ....
+}
+下面详细介绍每一步操作。
+
+第一步：声明动画变量
+可通过快捷构造方法 animationWithPropertyNamed:(NSString *)name 得到动画对象。 POPAnimatableProperty.h一一列举所有支持的PropertyName。
+
+所有的属性分成两大类：作用于View与作用于Layer。
+
+View系
+
+不透明度 - kPOPViewAlpha
+颜色 - kPOPViewBackgroundColor
+大小 - kPOPViewBounds
+中心点 - kPOPViewCenter
+位置与尺寸 - kPOPViewFrame
+尺寸 - kPOPViewScaleXY
+尺寸（按比例变化） - kPOPViewSize
+Layer系
+
+颜色 - kPOPLayerBackgroundColor
+大小 - kPOPLayerBounds、kPOPLayerScaleXY、kPOPLayerSize
+不透明度 - kPOPLayerOpacity
+位置 - kPOPLayerPosition
+X 坐标 - kPOPLayerPositionX
+Y 坐标 - kPOPLayerPositionY
+旋转 - kPOPLayerRotation
+有四个动画类： POPBasicAnimation 、 POPDecayAnimation 、 POPSpringAnimation 、 POPCustomAnimation ，它们的继承关系为
+
+NSObject   
+|- POPAnimation   
+	|- POPPropertyAnimation   
+		|- POPBasicAnimation   
+		|- POPDecayAnimation   
+		|- POPSpringAnimation   
+	|- POPCustomAnimation   
+POPBasicAnimation：传统动画，可以在给定时间的运动中插入数值调整运动节奏，支持默认、线性、淡入、淡出、淡入淡出动画。
+POPDecayAnimation：衰减动画，逐渐地将对象从运行状态转变为停止状态。
+POPSpringAnimation：弹性动画，给物体添加平滑的弹性效果
+POPCustomAnimation：自定义动画，让设计值创建自定义动效，只需简单处理CADisplayLink，并联系时间-运动关系，使用难度略大于前三者。
+第二步：配置动画对象属性
+不同的动画类具有不同的属性可供配置，如下所示：
+
+POPBasicAnimation：
+
+duration:CFTimeInterval，动画时长
+timingFunction:CAMediaTimingFunction，动画类型，用法basicAnimation.timingFunction=[CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
+fromValue动画开始状态值
+toValue动画结束状态值
+POPDecayAnimation：
+
+duration同上
+velocity，速度值，由构造时使用的Property的类型决定，每秒改变的数值
+deceleration:CGFloat，负加速度，很少使用该值
+POPSpringAnimation
+
+velocity同上
+springBounciness:CGFloat，值范围为[0, 20]，默认值为4
+springSpeed:CGFloat，值范围为[0, 20]，默认值为12
+dynamicsTension:CGFloat
+dynamicsFriction:CGFloat
+dynamicsMass:CGFloat
+springBounciness一般与springSpeed同时使用。
+
+animationWithPropertyNamed:kPOPLayerScaleXY 得到的对象，则velocity属性必须与ScaleXY类型一致，为CGPoint类型。
+
+第三步：添加动画
+添加动画的规则是，由kPOPLayer系列属性创建的动画需加到对象的layer属性。通过kPOPView系列属性创建的动画则加到view对象上，添加方法为 pop_addAnimation:forKey: ，key需唯一。
+
+删除动画
+使用pop_removeAllAnimations 删除对象的所有动画或 pop_removeAnimationForKey: 删除指定动画。
+与iOS自带的动画不同，如果你在动画的执行过程中删除了物体的动画，那么物体会停在动画状态的最后一个瞬间，而不是闪回开始前的状态。
+
+动画委托
+POPAnimatorDelegate是可选的，拥有如下方法
+
+- (void)pop_animationDidStart:(POPAnimation *)anim;
+- (void)pop_animationDidStop:(POPAnimation *)anim finished:(BOOL)finished;
+- (void)pop_animationDidReachToValue:(POPAnimation *)anim;
+几种动画的说明
+默认的两种动画模式以及他们的动画节奏
+默认的两种动画模式以及他们的动画节奏
+
+根据图示可以看出，Spring可以让用户触摸的元素能反馈出强有力弹动效果；Decay则可以让弹起来的元素缓慢的停下。这两种特效都会将用户的手势速率纳入考量范围进而创建出逼真的交互效果。除了这两种之外，Pop的自定义特性则允许开发者将自己的动画代码插入其中进而创建出独一无二的动画。这也就意味着，开源社区成员将可以在Pop的基础上玩出各种各样的特效。
+
+实例
+POPBasicAnimation
+淡入淡出动画
+POPBasicAnimation *ami = [POPBasicAnimation animationWithPropertyNamed:kPOPViewAlpha];
+ami.fromValue = @(0);
+ami.toValue = @(1);
+ami.duration = 2.0f;
+改变透明度
+POPBasicAnimation *opacityAnimation = [POPBasicAnimation animationWithPropertyNamed:kPOPLayerOpacity];
+opacityAnimation.toValue = @(0.5);
+POPSpringAnimation
+控制其动画效果的主要参数包括：
+
+Bounciness反弹，影响动画作用的参数的变化幅度；
+Speed速度；
+Tension拉力，影响回弹力度及速度；
+Friction摩擦力，开启后，动画会不断重复，并且幅度逐渐削弱，直到停止；
+Mass质量，细微地影响动画的回弹力度和速度。
+Tension、Friction、Mass这三个参数的作用很微妙。
+
+fromValue将告诉POP物体被动画操作的属性从什么数值开始运行。如果不提供fromValue，那么POP将默认使用当前数值。
+
+toValue是我们希望动画结束后，物体被动画操作的属性停留在什么值上，在这个例子中，toValue告诉了POP，我们希望沿着X轴和Y轴各缩放几倍。
+
+completionBlock提供了一个Callback，动画的执行过程会不断调用这个block，finished这个布尔变量可以用来做动画完成与否的判断。
+
+值得一提的是，这里toValue和fromValue的值应该和动画所作用的属性是一样的数据结构。例如，如果我们的操作对象是bounds，那么这里的toValue则应该是 [NSValue valueWithCGRect:] 。
+
+一个简单的示例
+
+buttonAnimation.springBounciness = 10.0;
+buttonAnimation.springSpeed = 10.0;
+popAnimation.dynamicsTension = 15.0;
+popAnimation.dynamicsFriction = 2.0;
+popAnimation.dynamicsMass = .2;
+缩小
+通过 [POPSpringAnimation animationWithPropertyNamed:kPOPLayerScaleXY] 创建一个在二维平面上分别沿着X轴和Y轴进行缩放的动画。下面是将视图缩小一半的动画。
+
+POPSpringAnimation *scaleAnimation = [POPSpringAnimation animationWithPropertyNamed:kPOPLayerScaleXY]; 
+scaleAnimation.toValue = [NSValue valueWithCGSize:CGSizeMake(0.5, 0.5)]; 
+scaleAnimation.springBounciness = 10.f; 
+属性名kPOPLayerScaleXY对应视图的layer，需要给layer添加动画，若给view添加，则异常。当把kPOPLayerScaleXY换成kPOPViewScaleXY，则可给view添加，实现效果一样。
+
+旋转
+POPSpringAnimation *rotationAnimation = [POPSpringAnimation animationWithPropertyNamed:kPOPLayerRotation];
+rotationAnimation.beginTime = CACurrentMediaTime() + 0.2;
+rotationAnimation.toValue = @(1.2); 
+rotationAnimation.springBounciness = 10.f; 
+rotationAnimation.springSpeed = 3; 
+这个小例子能够为UI元素旋转增加弹性效果，可以在旋转手势结束时使用，通过UIPanGestureRecognizer控制。
+
+- (void)panHandler:(UIPanGestureRecognizer *) panGesture { 
+	if (panGesture.state == UIGestureRecognizerStateEnded) { 
+		CGPoint velocity = [recognizer velocityInView:self.view];
+		POPSpringAnimation *spring = [POPSpringAnimation animationWithPropertyNamed:kPOPLayerRotation];
+		spring.velocity = [NSValue valueWithCGPoint:velocity];
+		[viewToAnimate.layer pop_addAnimation:spring forKey:@"rotationAnimation"]; 
+	} else { 
+		//-- transform the layer as per your gesture logics 
+	} 
+}
+POPDecayAnimation
+Decay Animation可以实现衰减的动画效果。这个动画有一个重要的参数即velocity（速率），这个参数一般并不用于物体的自发动画，而是与用户的交互共生。这和iOS 7引入的UIDynamic非常相似，如果你想实现一些物理效果，Decay Animation也是不错的选择。
+Decay的动画没有toValue只有fromValue，以fromValue作为原始值，按照velocity来做衰减操作。
+deceleration（负加速度）是一个很少用到的值，它影响动画被重力影响的效果。默认值就是我们地球的重力加速度0.998。如果你程序里的动画开发给火星人看，那么使用0.376这个值会更合适。
+
+一个简单的示例
+
+popOutAnimation.velocity = [NSValue valueWithCGRect:CGRectMake(200, 0, 300, -200)];
+popOutAnimation.springBounciness = 10.0;
+popOutAnimation.springSpeed = 10.0;
+刹车效果
+POPDecayAnimation *anim = [POPDecayAnimation animationWithPropertyNamed:kPOPLayerPositionX]; 
+anim.velocity = @(100);
+anim.fromValue = @(25.0);
+这个动画会使得物体从X坐标的25.0开始做100点/秒的减速运动。如果velocity里的数字是负值，那么你的动画就会反方向执行动画效果。这里非常值得一提的是，velocity也是必须和你操作的属性有相同的数据结构，如果你操作的是bounds，想实现一个水滴滴到桌面的扩散效果，那么velocity则应该是[NSValue valueWithRect:CGRectMake(0, 0, 20, 20)]。
+
+（左右）划出动画
+POPDecayAnimation *anm = [POPDecayAnimation animationWithPropertyNamed:kPOPLayerPositionX];   
+anm.velocity = @(1500);
+anm.velocity = @(1500) ，这里的1500需要用NSInteger表示，因为此属性为id，只接收对象，故做此包装。velocity数值越大，则动画所作用的视图划出屏幕的速度越快。当数据为正时，如1500，则视图向右划动；为负时，视图向左划动。无论数据如何，视图在动画结束后都保持动画结束时的状态。
+
+反弹动画
+技巧
+循环动画
+实现思路：
+
+定义一个执行动画的方法
+清除所有动画
+声明动画
+设置completionBlock属性
+检查finished参数值
+若真则调用自己
+示例代码如下
+
+- (void)performAnimation {
+	// 清除动画
+	[self.view.layer pop_removeAllAnimations];
+	// 声明动画
+	POPBasicAnimation *anim = [POPBasicAnimation animationWithPropertyNamed:kPOPLayerScaleXY];
+	// 设置completionBlock属性
+	anim.completionBlock = ^(POPAnimation *anim, BOOL finished) {
+		// 检查finished参数值
+		if (finished) {
+			// 若真则调用自己
+			[self performAnimation];
+		}
+	[self.view.layer pop_addAnimation:anim forKey:@"Animation"];
+}
+无缝更新动画
+POP的架构
+POP目前由四个部分组成，即Animations、Engine、Utility、WebCore。
+POP架构图
+POP动画流畅的秘密就在于这个引擎中的POPAnimator。通过CADisplayLink让动画实现了60 FPS的流畅效果，打造了一个游戏级的动画引擎。
+CADisplayLink是类似NSTimer的定时器，不同之处在于，NSTimer用于我们定义任务的执行周期及资料的更新周期，它的执行受CPU的阻塞所影响。而CADisplayLink则用于定义画面的重绘和动画的演变，它的执行是基于Frames的间隔。通过CADisplayLink，苹果允许开发者将App的重绘速度设定到与屏幕刷新频率一致。因此开发者可以获得非常流畅的交互动画，这项技术的应用在游戏中非常常见，著名的Cocos-2d引擎也用到了这个重要的技术。
+WebCore里包含了一些从苹果的开源的网页渲染引擎里拿到的源文件，它与Utility里的组件一并为POP的各项复杂计算提供了基本支持。因此，通过Engine、Utility、WebCore三个基石，打造了Animations。
+
+POP源码分析
+代码结构
+Animations： 定义pop支持的动画类型，并抽像各种动画的低层数据结构
+Engine：组织动化运行的数据结构，核心是动化管理者，还包括了动画引擎所需要的可动画属性定义、动画追踪等内容
+Utility： 封装Engine中用到的各种功能，包括数值运算，数据转换，运算等
+WebCore： 这部分是苹果公司的代码，矩阵运算和贝赛尔曲线的，用于底层运算。
+
+各层关键类的功能注释：
+Animations
+POPAnimation
+定义了动画基类POPAnimation
+私有变量：结构体_POPAnimationState 记录动画状态，是实现动画最关键的属性
+公有变量：name beginTime delegate tracer(动画追踪，纪录各种动画事件) ^completionBlock removedOnCompletion paused
+对应的继承关系有：
+
+_POPAnimationState
+	_POPPropertyAnimationState
+		_POPBasicAnimationState
+		_POPDecayAnimationState
+		_POPSpringAnimationState
+NSObject (POP)让所有对象增加pop动画支持（增删改查）通过POPAnimator进行管理
+
+Engine
+OPAnimateableProperty
+可动画的属性，用于定义动画类型和动画时修改值
+POPStaticAnimatablePropertyState 结构体纪录了属性名，readBlock，writeBlock，和域值
+static POPStaticAnimatablePropertyState _staticStates[]记录了所有可动画的属性对应的名称，其中的writeblock功能是把二进制数据写到对应的属性里
+
+类族
+POPAnimatableProperty
+	POPConcreteAnimatableProperty
+	POPMutableAnimatableProperty
+	POPPlaceholderAnimatableProperty
+	POPStaticAnimatableProperty
+POPAnimationEvent
+POPAnimationTracer的基本元素
+
+POPAnimationExtras
+扩展CAAnimation 和POPSpringAnimation 的方法（分类）
+
+POPAnimationRuntime
+POPBox 包装一个函数vector，把vector转化为point，size，rect，color等
+POPUnbox 解包一个向量，把point，size，rect，color对象转换为vector
+
+POPAnimationTracer
+动画跟踪 通过POPAnimationEvent来描述
+
+POPAnimator
+动画管理者，纪录所有的动画事件（POPAnimatorItem，纪录了动画作用到的对象、动画key、动画对象等信息），初始化是把CADisplayLink注册到runloop里定时触发render过程，进行一帧动画渲染。她提供了add、remove等操作Animation集合的方法，并提供了Observer和delegate等事件函数
+POPAnimator通过两层（key，view）存储动画，（动画目标对象，（动画key，动画对象））
+具体每帧的渲染过程有两步：1.renderTime，更新state的状态。 2.updateAnimatable，把state的变化更新到obj的具体属性上
+
+Utility
+各种工具类编写
+
+参考
+PopTut
+Bridging the Gap Between Gesture and Animation with Facebook's Pop Framework
+Facebook Pop Tutorial
+Facebook POP动效库使用教程
+Facebook POP，迈向大师操作之路
+Facebook开放动画引擎Pop，你也可以打造和Paper一样酷的应用了
+Facebook将神奇动画引擎Pop开源了！
+facebook开源动画引擎 pop 源码阅读笔记：
